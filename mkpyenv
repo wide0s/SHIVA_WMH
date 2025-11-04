@@ -1,0 +1,105 @@
+#!/bin/bash
+
+# will stop this script on any error
+set -e
+
+venv="venv"
+
+CC='\033[0;35m'
+OC='\033[0;33m'
+GC='\033[0;32m'
+RC='\033[0;31m'
+NC='\033[0m'
+
+
+function no_libcudnn()
+{
+        echo -e "${RC}Download cuDNN 8.6 for CUDA 11.x from https://developer.nvidia.com/rdp/cudnn-archive and install it using this command
+sudo dpkg -i cudnn-local-repo-ubuntu2004-8.6.0.163_1.0-1_amd64.deb && apt update && apt-get install -y libcudnn8${NC}"
+}
+
+# found https://stackoverflow.com/questions/75614728/cuda-12-tf-nightly-2-12-could-not-find-cuda-drivers-on-your-machine-gpu-will
+function lib_installed()
+{
+	/sbin/ldconfig -N -v $(sed 's/:/ /' <<< $LD_LIBRARY_PATH) 2>/dev/null | grep $1;
+}
+
+function check_library()
+{
+	if lib_installed $1 ; then
+		echo -e "${GC}$1 is installed${NC}"
+	else
+		echo -e "${RC}FATAL: $1 is NOT installed${NC}"
+		[ $# -eq 2 ] && $2
+		exit 1
+	fi
+}
+
+usage()
+{
+	echo "Syntax: run.sh [ -h ] [ -r ] [ -k ]"
+	echo "Options:"
+	echo ""
+	echo "   -h          Show this help and exit."
+	echo "   -i          Install venv if it does not exist and exit."
+	echo "   -r          Force reinstall venv and exit."
+	echo
+	echo "Examples:"
+	echo
+	echo "   ./run -i"
+	echo "   ./run -r"
+}
+
+while getopts "hri" option; do
+	case $option in
+		h)
+			usage
+			exit 0;;
+		i)
+			install=y
+			;;
+		r)
+			reinstall=y
+			;;
+		\?)
+			echo "error: invalid argument given, run with -h"
+			exit 1;;
+		esac
+done
+
+if [ -v reinstall ]; then
+	echo -e "${OC}Removing $venv...${NC}"
+	rm -rf $venv
+fi
+
+if [ ! -d $venv ]; then
+	echo -e "${OC}Preparing $venv...${NC}"
+	python3.8 -m venv $venv # FIX: need 3.7, did not find how to install it on ubuntu 20.04
+	source $venv/bin/activate
+	pip install --upgrade pip
+	pip install -U pip wheel setuptools
+	if [ -f requirements.txt ]; then
+		pip install -r requirements.txt
+	fi
+else
+	source $venv/bin/activate
+fi
+
+echo -e "${GC}Tensorflow $(pip show tensorflow | grep Version)${NC}"
+if [ -z $(which nvidia-smi) ] || [ -z $(which nvcc) ] ; then
+	echo -e "${RC}FATAL: CUDA Toolkit 11.8 is NOT installed. Download it from https://developer.nvidia.com/cuda-11-8-0-download-archive, use WSL-Ubuntu when installing on WSL${NC}"
+	exit 1
+fi
+
+# lists available GPUs and checks NVCC
+nvidia-smi
+nvcc --version
+# checks CUDA and cuDNN lbraries are correctly installed
+check_library libcuda
+check_library libcudart
+check_library libcusparse
+check_library libcusolver
+check_library libcufft
+check_library libcublasLt
+check_library libcublas
+check_library libcudnn no_libcudnn

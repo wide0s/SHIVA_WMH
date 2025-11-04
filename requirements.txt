@@ -1,0 +1,5 @@
+numpy
+scipy
+nibabel
+tensorflow >= 2.7
+scikit-image
